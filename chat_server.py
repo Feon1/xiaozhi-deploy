@@ -8,11 +8,17 @@ import os
 import sqlite3
 import numpy as np
 
+
 import websockets
 from flask import Flask, render_template, request, jsonify, Response, g
 from flask_httpauth import HTTPBasicAuth
 
 from tts_helper import text_to_pcm_float32
+
+# Внешний RAG-адаптер (Feon1/chat)
+RAG_URL = os.getenv("RAG_URL", "https://ваш-rag.onrender.com")
+RAG_ENDPOINT = os.getenv("RAG_ENDPOINT", "/chat")   # ← уточнить!
+RAG_TIMEOUT = 60.0
 
 PROXY_URL = "ws://localhost:5002/"
 SHORT_LIMIT_BYTES = 30
@@ -36,6 +42,8 @@ ws_ready = False
 session_id = None
 last_short_text = None   # ← добавить
 
+last_user_question = None   # ← добавить
+
 
 # ============================================================
 # АВТОРИЗАЦИЯ
@@ -45,6 +53,40 @@ def verify_password(username, password):
     if username == USERNAME and password == PASSWORD:
         return username
     return None
+
+
+
+async def ask_external_rag(question: str) -> str:
+    """Отправляет вопрос во внешний RAG-адаптер и возвращает ответ."""
+    try:
+        print(f"🌐 [RAG] Отправляю во внешний чат: {question[:60]}...")
+        async with httpx.AsyncClient(timeout=RAG_TIMEOUT) as client:
+            resp = await client.post(
+                f"{RAG_URL}{RAG_ENDPOINT}",
+                json={
+                    "user_id": "xiaozhi_web",
+                    "text": question,
+                },
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            # Пробуем разные ключи ответа
+            answer = (
+                data.get("reply")
+                or data.get("response")
+                or data.get("answer")
+                or data.get("message")
+                or data.get("result")
+            )
+            if not answer:
+                print(f"⚠️ [RAG] Неожиданный формат ответа: {data}")
+                return None
+            print(f"✅ [RAG] Получен ответ ({len(answer)} симв.)")
+            return answer
+    except Exception as e:
+        print(f"❌ [RAG] Ошибка: {e}")
+        return None
+
 
 
 # ============================================================
@@ -143,7 +185,25 @@ async def ws_recv_loop(ws):
             if t == "tts":
                 state = data.get("state")
                 if state in ("sentence_start", "sentence_end") and data.get("text"):
-                    push_event("tts", state=state, text=data["text"])
+                    text = data["text"]
+                    push_event("tts", state=state, text=text)
+
+                    # Проверка на "нет информации" от Феофана
+                    markers = [
+                        "нет информации",
+                        "не найдено",
+                        "не могу найти",
+                        "в базе знаний нет",
+                        "отсутствует информация",
+                        "не содержится",
+                        "не упоминается",
+                    ]
+                    if (state == "sentence_end"
+                        and last_user_question
+                        and any(m in text.lower() for m in markers)):
+                    print(f"🔄 [RAG] Феофан не нашёл → запрашиваю у внешнего чата")
+                    asyncio.create_task(handle_rag_fallback(last_user_question))
+
                 elif state == "start":
                     push_event("tts_start")
                 elif state == "stop":
@@ -152,6 +212,17 @@ async def ws_recv_loop(ws):
         else:
             continue
 
+async def handle_rag_fallback(question: str):
+    """Запрашивает ответ у внешнего RAG и отправляет его в чат."""
+    push_event("status", text="🌐 Ищу ответ во внешней базе...")
+    answer = await ask_external_rag(question)
+    if answer:
+        # Отправляем как обычный ответ ассистента
+        push_event("tts_start")
+        push_event("tts", state="sentence_start", text=f"🌐 Внешний чат: {answer}")
+        push_event("tts_stop")
+    else:
+        push_event("error", text="Внешний RAG не ответил")
 
 async def ws_send_loop(ws):
     while True:
@@ -295,8 +366,8 @@ def index():
 
 
 @app.route("/send", methods=["POST"])
-@auth.login_required
 def send():
+    global last_user_question
     data = request.get_json()
     text = (data.get("text") or "").strip()
     if not text:
@@ -305,7 +376,10 @@ def send():
         return jsonify({"ok": False, "error": "Прокси не подключён"})
 
     save_message("user", text)
+    last_user_question = text   # ← запоминаем
+
     length_bytes = len(text.encode("utf-8"))
+    
 
     if length_bytes <= SHORT_LIMIT_BYTES:
         send_short_text(text)
