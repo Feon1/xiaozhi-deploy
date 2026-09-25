@@ -22,14 +22,9 @@ PROXY_URL = "ws://localhost:5002/"
 SHORT_LIMIT_BYTES = 30
 DB_FILE = os.path.join(os.path.dirname(__file__), "chat_history.db")
 
-# Внешний RAG-адаптер (Feon1/chat) — эндпоинт /query, формат {"message": "...", "user_id": "..."}
-#RAG_URL = os.getenv("RAG_URL", "https://docker-new-chat.onrender.com")
-#RAG_TIMEOUT = 60.0
-# Внешний RAG-адаптер (Feon1/chat)
-#RAG_URL = os.getenv("RAG_URL", "https://feon-chat.website.yandexcloud.net")
-#RAG_ENDPOINT = os.getenv("RAG_ENDPOINT", "/query")   # ← уточните после проверки
-#RAG_TIMEOUT = 60.0
+
 # Внешний RAG-адаптер (Yandex Cloud)
+
 RAG_URL = os.getenv("RAG_URL", "https://d5dq57ou1bsu78horuke.avjje9e3.apigw.yandexcloud.net/query")
 RAG_TIMEOUT = 60.0
 YANDEX_API_KEY = os.getenv("YANDEX_API_KEY", "")
@@ -114,12 +109,11 @@ def push_event(kind, **payload):
 # ВНЕШНИЙ RAG (Feon1/chat)
 # ============================================================
 async def ask_external_rag(question: str) -> str:
-    """POST /query → {"message": "...", "user_id": "..."} → {"response": "..."}"""
     try:
         print(f"🌐 [RAG] Отправляю: {question[:60]}...")
         async with httpx.AsyncClient(timeout=RAG_TIMEOUT) as client:
             resp = await client.post(
-                f"{RAG_URL}/query",
+                RAG_URL,   # ← используем RAG_URL как есть (там уже /query)
                 json={"message": question, "user_id": "xiaozhi_web"},
             )
             resp.raise_for_status()
