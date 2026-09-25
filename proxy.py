@@ -197,7 +197,9 @@ class WebSocketProxy:
             async with websockets.connect(
                 WS_URL,
                 additional_headers=self.headers,
-                ping_interval=None,
+                ping_interval=20,      # отправлять ping каждые 20 сек
+                ping_timeout=10,       # ждать pong 10 сек
+                close_timeout=5,
             ) as server_ws:
                 print("✅ Подключено к серверу Xiaozhi")
 
@@ -235,7 +237,12 @@ class WebSocketProxy:
                     # Бинарные данные (Opus-аудио от TTS) — игнорируем молча
                     continue
         except Exception as e:
-            print(f"Ошибка серверных сообщений: {e}")
+            print(f"Ошибка серверных сообщений: {type(e).__name__}: {e}")
+            # Логируем состояние соединения
+            try:
+                print(f"   close_code={server_ws.close_code}, close_reason={server_ws.close_reason}")
+            except Exception:
+                pass
 
     async def handle_client_messages(self, client_ws, server_ws):
         """
