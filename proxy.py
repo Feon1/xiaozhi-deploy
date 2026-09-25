@@ -36,7 +36,7 @@ TOKEN = os.getenv("DEVICE_TOKEN", "test-token")
 LOCAL_PROXY_URL = os.getenv("LOCAL_PROXY_URL", "ws://localhost:5002")
 OTA_URL = os.getenv("OTA_URL", "https://api.tenclass.net/xiaozhi/ota/")
 
-DEVICE_MAC = '00:1d:92:46:11:12'
+DEVICE_MAC = 'e0:2e:0b:ae:79:ea'
 
 try:
     parsed_url = urlparse(LOCAL_PROXY_URL)
@@ -54,7 +54,7 @@ def get_mac_address():
     return DEVICE_MAC
 
 
-CLIENT_ID = "684ca38f-6e4e-4a99-8b4c-c166380d92d9"
+CLIENT_ID = "9cc3e5e4-adcf-4eff-8d23-95d4eaa21020"
 
 
 def get_client_id():
