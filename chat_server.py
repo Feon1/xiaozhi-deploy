@@ -136,24 +136,27 @@ async def ask_external_rag(question: str) -> str:
 
 
 async def handle_rag_fallback(question: str):
-    """Запрашивает ответ у внешнего RAG и отправляет его в чат."""
-    global rag_in_progress
+    global rag_in_progress, rag_fallback_active
     if rag_in_progress:
         return
     rag_in_progress = True
+    rag_fallback_active = True
     try:
         push_event("status", text="🌐 Ищу ответ во внешней базе...")
         answer = await ask_external_rag(question)
         if answer:
+            # ТОЛЬКО отображение в чате — без отправки в Xiaozhi
             push_event("tts_start")
             push_event("tts", state="sentence_start",
                        text=f"🌐 Внешний источник: {answer}")
             push_event("tts", state="sentence_end", text="")
             push_event("tts_stop")
+            # НЕТ send_long_text — колонка не озвучивает RAG
         else:
             push_event("error", text="Внешний источник не ответил")
     finally:
         rag_in_progress = False
+        rag_fallback_active = False   # сбрасываем сразу, т.к. в Xiaozhi ничего не отправляем
 
 
 # ============================================================
