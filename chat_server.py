@@ -1,4 +1,4 @@
-"""Flask-сервер чата с паролем и историей в SQLite."""
+"""Flask-сервер чата с паролем, историей в SQLite и fallback на внешний RAG."""
 import asyncio
 import json
 import queue
@@ -7,24 +7,26 @@ import time
 import os
 import sqlite3
 import numpy as np
-
+import httpx
 
 import websockets
-from flask import Flask, render_template, request, jsonify, Response, g
+from flask import Flask, render_template, request, jsonify, Response
 from flask_httpauth import HTTPBasicAuth
 
 from tts_helper import text_to_pcm_float32
 
-# Внешний RAG-адаптер (Feon1/chat)
-RAG_URL = os.getenv("RAG_URL", "https://ваш-rag.onrender.com")
-RAG_ENDPOINT = os.getenv("RAG_ENDPOINT", "/chat")   # ← уточнить!
-RAG_TIMEOUT = 60.0
-
+# ============================================================
+# НАСТРОЙКИ
+# ============================================================
 PROXY_URL = "ws://localhost:5002/"
 SHORT_LIMIT_BYTES = 30
 DB_FILE = os.path.join(os.path.dirname(__file__), "chat_history.db")
 
-# Пароль (можно задать через Render Dashboard)
+# Внешний RAG-адаптер (Feon1/chat) — эндпоинт /query, формат {"message": "...", "user_id": "..."}
+RAG_URL = os.getenv("RAG_URL", "https://docker-new-chat.onrender.com")
+RAG_TIMEOUT = 60.0
+
+# Пароль
 USERNAME = os.getenv("CHAT_USER", "admin")
 PASSWORD = os.getenv("CHAT_PASS", "xiaozhi123")
 
@@ -38,11 +40,9 @@ send_queue = queue.Queue()
 # Состояние
 ws_ready = False
 session_id = None
-ws_ready = False
-session_id = None
-last_short_text = None   # ← добавить
-
-last_user_question = None   # ← добавить
+last_short_text = None       # для отката detect → TTS
+last_user_question = None    # для fallback на RAG
+rag_in_progress = False      # защита от дублирования запросов
 
 
 # ============================================================
@@ -53,40 +53,6 @@ def verify_password(username, password):
     if username == USERNAME and password == PASSWORD:
         return username
     return None
-
-
-
-async def ask_external_rag(question: str) -> str:
-    """Отправляет вопрос во внешний RAG-адаптер и возвращает ответ."""
-    try:
-        print(f"🌐 [RAG] Отправляю во внешний чат: {question[:60]}...")
-        async with httpx.AsyncClient(timeout=RAG_TIMEOUT) as client:
-            resp = await client.post(
-                f"{RAG_URL}{RAG_ENDPOINT}",
-                json={
-                    "user_id": "xiaozhi_web",
-                    "text": question,
-                },
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            # Пробуем разные ключи ответа
-            answer = (
-                data.get("reply")
-                or data.get("response")
-                or data.get("answer")
-                or data.get("message")
-                or data.get("result")
-            )
-            if not answer:
-                print(f"⚠️ [RAG] Неожиданный формат ответа: {data}")
-                return None
-            print(f"✅ [RAG] Получен ответ ({len(answer)} симв.)")
-            return answer
-    except Exception as e:
-        print(f"❌ [RAG] Ошибка: {e}")
-        return None
-
 
 
 # ============================================================
@@ -131,98 +97,135 @@ def clear_history():
 
 
 # ============================================================
-# ОТПРАВКА СОБЫТИЙ В SSE
+# SSE-СОБЫТИЯ
 # ============================================================
 def push_event(kind, **payload):
     sse_queue.put({"kind": kind, **payload})
 
 
 # ============================================================
-# WEBSOCKET-КЛИЕНТ К ПРОКСИ
+# ВНЕШНИЙ RAG (Feon1/chat)
 # ============================================================
-async def ws_recv_loop(ws):
-    global session_id
-    global last_short_text   # ← ДОБАВИТЬ ЭТУ СТРОКУ
-    async for msg in ws:
-        if isinstance(msg, str):
-            
-            try:
-                data = json.loads(msg)
-            except json.JSONDecodeError:
-                continue
-            t = data.get("type")
+async def ask_external_rag(question: str) -> str:
+    """POST /query → {"message": "...", "user_id": "..."} → {"response": "..."}"""
+    try:
+        print(f"🌐 [RAG] Отправляю: {question[:60]}...")
+        async with httpx.AsyncClient(timeout=RAG_TIMEOUT) as client:
+            resp = await client.post(
+                f"{RAG_URL}/query",
+                json={"message": question, "user_id": "xiaozhi_web"},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            answer = data.get("response")
+            if not answer:
+                print(f"⚠️ [RAG] Пустой ответ: {data}")
+                return None
+            print(f"✅ [RAG] Ответ ({len(answer)} симв.)")
+            return answer
+    except Exception as e:
+        print(f"❌ [RAG] Ошибка: {e}")
+        return None
 
-            if t == "hello":
-                session_id = data.get("session_id")
-                print(f"✅ Session ID: {session_id}")
-                push_event("status", text=f"Подключено (session {session_id})")
-                continue
-
-            if t == "alert":
-                msg = data.get("message", "alert")
-    
-                if "wake words" in msg.lower() or "detect" in msg.lower():
-                    if last_short_text:
-                        print(f"⚠️ detect отклонил '{last_short_text}' → повторяю через TTS")
-                        push_event("status", text="Обхожу ограничение через TTS...")
-                        text_to_resend = last_short_text
-                        last_short_text = None
-                        send_long_text(text_to_resend)
-                    else:
-                        push_event("error", text=msg)
-                else:
-                    push_event("error", text=msg)
-                continue
-
-            if t == "stt":
-                push_event("stt", text=data.get("text", ""))
-                continue
-
-            if t == "llm":
-                push_event("llm", text=data.get("text", ""), emotion=data.get("emotion"))
-                continue
-
-            if t == "tts":
-                state = data.get("state")
-                if state in ("sentence_start", "sentence_end") and data.get("text"):
-                    text = data["text"]
-                    push_event("tts", state=state, text=text)
-
-                    # Проверка на "нет информации" от Феофана
-                    markers = [
-                        "нет информации",
-                        "не найдено",
-                        "не могу найти",
-                        "в базе знаний нет",
-                        "отсутствует информация",
-                        "не содержится",
-                        "не упоминается",
-                    ]
-                    if (state == "sentence_end"
-                        and last_user_question
-                        and any(m in text.lower() for m in markers)):
-                    print(f"🔄 [RAG] Феофан не нашёл → запрашиваю у внешнего чата")
-                    asyncio.create_task(handle_rag_fallback(last_user_question))
-
-                elif state == "start":
-                    push_event("tts_start")
-                elif state == "stop":
-                    push_event("tts_stop")
-                continue
-        else:
-            continue
 
 async def handle_rag_fallback(question: str):
     """Запрашивает ответ у внешнего RAG и отправляет его в чат."""
-    push_event("status", text="🌐 Ищу ответ во внешней базе...")
-    answer = await ask_external_rag(question)
-    if answer:
-        # Отправляем как обычный ответ ассистента
-        push_event("tts_start")
-        push_event("tts", state="sentence_start", text=f"🌐 Внешний чат: {answer}")
-        push_event("tts_stop")
-    else:
-        push_event("error", text="Внешний RAG не ответил")
+    global rag_in_progress
+    if rag_in_progress:
+        return
+    rag_in_progress = True
+    try:
+        push_event("status", text="🌐 Ищу ответ во внешней базе...")
+        answer = await ask_external_rag(question)
+        if answer:
+            push_event("tts_start")
+            push_event("tts", state="sentence_start",
+                       text=f"🌐 Внешний источник: {answer}")
+            push_event("tts", state="sentence_end", text="")
+            push_event("tts_stop")
+        else:
+            push_event("error", text="Внешний источник не ответил")
+    finally:
+        rag_in_progress = False
+
+
+# ============================================================
+# WEBSOCKET-КЛИЕНТ К ПРОКСИ
+# ============================================================
+async def ws_recv_loop(ws):
+    global session_id, last_short_text, last_user_question
+    async for msg in ws:
+        if not isinstance(msg, str):
+            continue  # бинарные (аудио) — игнорируем
+
+        try:
+            data = json.loads(msg)
+        except json.JSONDecodeError:
+            continue
+
+        t = data.get("type")
+
+        if t == "hello":
+            session_id = data.get("session_id")
+            print(f"✅ Session ID: {session_id}")
+            push_event("status", text=f"Подключено (session {session_id})")
+            continue
+
+        if t == "alert":
+            alert_msg = data.get("message", "alert")
+            if "wake words" in alert_msg.lower() or "detect" in alert_msg.lower():
+                if last_short_text:
+                    print(f"⚠️ detect отклонил '{last_short_text}' → повторяю через TTS")
+                    push_event("status", text="Обхожу ограничение через TTS...")
+                    text_to_resend = last_short_text
+                    last_short_text = None
+                    send_long_text(text_to_resend)
+                else:
+                    push_event("error", text=alert_msg)
+            else:
+                push_event("error", text=alert_msg)
+            continue
+
+        if t == "stt":
+            push_event("stt", text=data.get("text", ""))
+            continue
+
+        if t == "llm":
+            push_event("llm", text=data.get("text", ""), emotion=data.get("emotion"))
+            continue
+
+        if t == "tts":
+            state = data.get("state")
+            text = data.get("text", "")
+
+            if state in ("sentence_start", "sentence_end") and text:
+                push_event("tts", state=state, text=text)
+
+                # Проверка на "нет информации" от Феофана
+                markers = [
+                    "нет информации",
+                    "не найдено",
+                    "не могу найти",
+                    "в базе знаний нет",
+                    "отсутствует информация",
+                    "не содержится",
+                    "не упоминается",
+                    "нет данных",
+                    "не удалось найти",
+                ]
+                if (state == "sentence_end"
+                        and last_user_question
+                        and any(m in text.lower() for m in markers)):
+                    print(f"🔄 [RAG] Феофан не нашёл → fallback")
+                    q = last_user_question
+                    asyncio.create_task(handle_rag_fallback(q))
+
+            elif state == "start":
+                push_event("tts_start")
+            elif state == "stop":
+                push_event("tts_stop")
+            continue
+
 
 async def ws_send_loop(ws):
     while True:
@@ -300,7 +303,7 @@ def start_ws_thread():
 def send_short_text(text: str):
     """Короткий текст — через detect."""
     global last_short_text
-    last_short_text = text      # запоминаем на случай отклонения
+    last_short_text = text
     send_queue.put({
         "kind": "text",
         "data": {
@@ -314,9 +317,10 @@ def send_short_text(text: str):
 
 
 def send_long_text(text: str):
+    """Длинный текст — TTS → PCM → аудио."""
     global last_short_text
-    last_short_text = None       # ← чтобы не было повторов
-    
+    last_short_text = None
+
     def worker():
         try:
             print(f"🎤 [TTS] Генерирую аудио для: {text[:60]}...")
@@ -366,6 +370,7 @@ def index():
 
 
 @app.route("/send", methods=["POST"])
+@auth.login_required
 def send():
     global last_user_question
     data = request.get_json()
@@ -376,10 +381,9 @@ def send():
         return jsonify({"ok": False, "error": "Прокси не подключён"})
 
     save_message("user", text)
-    last_user_question = text   # ← запоминаем
+    last_user_question = text
 
     length_bytes = len(text.encode("utf-8"))
-    
 
     if length_bytes <= SHORT_LIMIT_BYTES:
         send_short_text(text)
@@ -420,6 +424,9 @@ def clear():
     return jsonify({"ok": True})
 
 
+# ============================================================
+# ЗАПУСК
+# ============================================================
 if __name__ == "__main__":
     init_db()
     threading.Thread(target=start_ws_thread, daemon=True).start()
@@ -428,6 +435,7 @@ if __name__ == "__main__":
     print("=" * 60)
     print(f"  Xiaozhi Chat Server (port {port})")
     print(f"  Пароль: {USERNAME} / {PASSWORD}")
+    print(f"  RAG:    {RAG_URL}/query")
     print("=" * 60)
 
     app.run(host="0.0.0.0", port=port, debug=False, threaded=True)
