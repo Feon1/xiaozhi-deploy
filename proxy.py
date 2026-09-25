@@ -34,10 +34,10 @@ DEVICE_MAC = '00:1d:92:46:11:12'
 
 try:
     parsed_url = urlparse(LOCAL_PROXY_URL)
-    PROXY_HOST = '0.0.0.0'
+    PROXY_HOST = '127.0.0.1'
     PROXY_PORT = parsed_url.port or 5002
 except Exception:
-    PROXY_HOST = '127.0.0.1'
+  
     PROXY_PORT = 5002
 
 
@@ -133,6 +133,30 @@ class AudioProcessor:
             return [pcm_data.tobytes()]
         return []
 
+
+# ============================================================
+# ОБРАБОТЧИК HTTP-ЗАПРОСОВ (для health-checks Render)
+# ============================================================
+async def process_request(connection, request):
+    """
+    Если пришёл не-WebSocket запрос (HEAD, GET без Upgrade) —
+    возвращаем короткий HTTP-ответ вместо падения.
+    """
+    # Если это WebSocket upgrade — пропускаем дальше (None = продолжить)
+    if request.headers.get("Upgrade", "").lower() == "websocket":
+        return None
+    
+    # Иначе — возвращаем простой ответ
+    from websockets.http11 import Response
+    from websockets.datastructures import Headers
+    
+    body = b"Xiaozhi WebSocket Proxy is running"
+    headers = Headers([
+        ("Content-Type", "text/plain"),
+        ("Content-Length", str(len(body))),
+        ("Connection", "close"),
+    ])
+    return Response(200, "OK", headers, body)
 
 # ============================================================
 # WEBSOCKET-ПРОКСИ
@@ -252,7 +276,12 @@ class WebSocketProxy:
         print(f"🌐 WS URL: {WS_URL}")
         print("=" * 60)
 
-        async with websockets.serve(self.proxy_handler, PROXY_HOST, PROXY_PORT):
+        async with websockets.serve(
+            self.proxy_handler,
+            PROXY_HOST,
+            PROXY_PORT,
+            process_request=process_request,   # ← добавили
+        ):
             await asyncio.Future()
 
 
