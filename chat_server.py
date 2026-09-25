@@ -459,7 +459,7 @@ if __name__ == "__main__":
     print("=" * 60)
     print(f"  Xiaozhi Chat Server (port {port})")
     print(f"  Пароль: {USERNAME} / {PASSWORD}")
-    print(f"  RAG:    {RAG_URL}/query")
+    print(f"  RAG:    {RAG_URL}")
     print("=" * 60)
 
     app.run(host="0.0.0.0", port=port, debug=False, threaded=True)
