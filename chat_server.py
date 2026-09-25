@@ -23,7 +23,11 @@ SHORT_LIMIT_BYTES = 30
 DB_FILE = os.path.join(os.path.dirname(__file__), "chat_history.db")
 
 # Внешний RAG-адаптер (Feon1/chat) — эндпоинт /query, формат {"message": "...", "user_id": "..."}
-RAG_URL = os.getenv("RAG_URL", "https://docker-new-chat.onrender.com")
+#RAG_URL = os.getenv("RAG_URL", "https://docker-new-chat.onrender.com")
+#RAG_TIMEOUT = 60.0
+# Внешний RAG-адаптер (Feon1/chat)
+RAG_URL = os.getenv("RAG_URL", "https://feon-chat.website.yandexcloud.net")
+RAG_ENDPOINT = os.getenv("RAG_ENDPOINT", "/query")   # ← уточните после проверки
 RAG_TIMEOUT = 60.0
 
 # Пароль
