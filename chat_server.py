@@ -210,13 +210,13 @@ async def ws_recv_loop(ws):
                     "нет данных",
                     "не удалось найти",
                 ]
-                if (last_user_question
-                        and not rag_fallback_active
-                        and any(m in llm_text.lower() for m in markers)):
-                    print(f"🔄 [RAG] Феофан не нашёл (llm) → fallback")
-                    q = last_user_question
-                    asyncio.create_task(handle_rag_fallback(q))
-                continue
+                #if (last_user_question
+                #        and not rag_fallback_active
+                #        and any(m in llm_text.lower() for m in markers)):
+               #     print(f"🔄 [RAG] Феофан не нашёл (llm) → fallback")
+                #    q = last_user_question
+               #     asyncio.create_task(handle_rag_fallback(q))
+               # continue
 
         if t == "tts":
             state = data.get("state")
@@ -237,12 +237,12 @@ async def ws_recv_loop(ws):
                     "нет данных",
                     "не удалось найти",
                 ]
-                if (state == "sentence_end"
-                        and last_user_question
-                        and any(m in text.lower() for m in markers)):
-                    print(f"🔄 [RAG] Феофан не нашёл → fallback")
-                    q = last_user_question
-                    asyncio.create_task(handle_rag_fallback(q))
+                #if (state == "sentence_end"
+                #        and last_user_question
+                 #       and any(m in text.lower() for m in markers)):
+                  #  print(f"🔄 [RAG] Феофан не нашёл → fallback")
+                 #   q = last_user_question
+                  #  asyncio.create_task(handle_rag_fallback(q))
 
             elif state == "start":
                 push_event("tts_start")
