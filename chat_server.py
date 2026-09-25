@@ -283,10 +283,10 @@ async def ws_worker():
                 hello_msg = {
                     "type": "hello",
                     "version": 3,
-                    "device_id": "00:1d:92:46:11:12",
-                    "device_mac": "00:1d:92:46:11:12",
+                    "device_id": "e0:2e:0b:ae:79:ea",
+                    "device_mac": "e0:2e:0b:ae:79:ea",
                     "token": "test-token",
-                    "audio_params": {
+                        "audio_params": {
                         "format": "opus",
                         "sample_rate": 16000,
                         "channels": 1,
