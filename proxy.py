@@ -224,21 +224,14 @@ class WebSocketProxy:
             print("🔌 Клиент отключён")
 
     async def handle_server_messages(self, server_ws, client_ws):
-        """
-        Сообщения от Xiaozhi к клиенту.
-        Бинарные данные (аудио) ПОЛНОСТЬЮ игнорируются — не декодируются, не буферизуются, не отправляются.
-        """
         try:
             async for message in server_ws:
                 if isinstance(message, str):
-                    # Все текстовые JSON-сообщения просто пересылаем клиенту
                     await client_ws.send(message)
                 else:
-                    # Бинарные данные (Opus-аудио от TTS) — игнорируем молча
                     continue
         except Exception as e:
-            print(f"Ошибка серверных сообщений: {type(e).__name__}: {e}")
-            # Логируем состояние соединения
+            print(f"❌ Ошибка серверных сообщений: {type(e).__name__}: {e}")
             try:
                 print(f"   close_code={server_ws.close_code}, close_reason={server_ws.close_reason}")
             except Exception:
