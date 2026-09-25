@@ -37,7 +37,7 @@ try:
     PROXY_HOST = '0.0.0.0'
     PROXY_PORT = parsed_url.port or 5002
 except Exception:
-    PROXY_HOST = '0.0.0.0'
+    PROXY_HOST = '127.0.0.1'
     PROXY_PORT = 5002
 
 
