@@ -9,3 +9,4 @@ edge-tts
 miniaudio==1.61
 opuslib==3.0.1
 pydub==0.25.1
+httpx==0.27.2
