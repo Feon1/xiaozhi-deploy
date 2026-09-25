@@ -26,10 +26,13 @@ DB_FILE = os.path.join(os.path.dirname(__file__), "chat_history.db")
 #RAG_URL = os.getenv("RAG_URL", "https://docker-new-chat.onrender.com")
 #RAG_TIMEOUT = 60.0
 # Внешний RAG-адаптер (Feon1/chat)
-RAG_URL = os.getenv("RAG_URL", "https://feon-chat.website.yandexcloud.net")
-RAG_ENDPOINT = os.getenv("RAG_ENDPOINT", "/query")   # ← уточните после проверки
+#RAG_URL = os.getenv("RAG_URL", "https://feon-chat.website.yandexcloud.net")
+#RAG_ENDPOINT = os.getenv("RAG_ENDPOINT", "/query")   # ← уточните после проверки
+#RAG_TIMEOUT = 60.0
+# Внешний RAG-адаптер (Yandex Cloud)
+RAG_URL = os.getenv("RAG_URL", "https://d5dq57ou1bsu78horuke.avjje9e3.apigw.yandexcloud.net/query")
 RAG_TIMEOUT = 60.0
-
+YANDEX_API_KEY = os.getenv("YANDEX_API_KEY", "")
 # Пароль
 USERNAME = os.getenv("CHAT_USER", "admin")
 PASSWORD = os.getenv("CHAT_PASS", "xiaozhi123")
