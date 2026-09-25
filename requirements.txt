@@ -5,7 +5,7 @@ requests==2.32.3
 python-dotenv==1.0.1
 numpy==1.26.3
 scipy==1.13.1
-edge-tts==6.1.17
+edge-tts
 miniaudio==1.61
 opuslib==3.0.1
 pydub==0.25.1
