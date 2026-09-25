@@ -11,6 +11,12 @@ import numpy as np
 
 from system_info import setup_opus
 
+import logging
+
+# Скрыть трейсбеки от HEAD-запросов Render
+logging.getLogger("websockets.server").setLevel(logging.CRITICAL)
+logging.getLogger("websockets.asyncio.server").setLevel(logging.CRITICAL)
+
 setup_opus()
 
 try:
