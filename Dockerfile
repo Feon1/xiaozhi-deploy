@@ -19,4 +19,4 @@ COPY . .
 EXPOSE 5003
 
 # Скрипт запуска: и прокси, и чат-сервер
-CMD ["sh", "-c", "python proxy.py & python chat_server.py"]
+CMD ["sh", "-c", "python proxy.py & sleep 3 && python chat_server.py"]
