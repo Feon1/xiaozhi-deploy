@@ -100,8 +100,10 @@ def push_event(kind, **payload):
 # ============================================================
 async def ws_recv_loop(ws):
     global session_id
+    global last_short_text   # ← ДОБАВИТЬ ЭТУ СТРОКУ
     async for msg in ws:
         if isinstance(msg, str):
+            
             try:
                 data = json.loads(msg)
             except json.JSONDecodeError:
