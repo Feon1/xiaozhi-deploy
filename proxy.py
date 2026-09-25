@@ -54,7 +54,7 @@ def get_mac_address():
     return DEVICE_MAC
 
 
-CLIENT_ID = os.getenv("CLIENT_ID", "")
+CLIENT_ID = "684ca38f-6e4e-4a99-8b4c-c166380d92d9"
 
 
 def get_client_id():
