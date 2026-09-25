@@ -201,8 +201,28 @@ async def ws_recv_loop(ws):
             continue
 
         if t == "llm":
-            push_event("llm", text=data.get("text", ""), emotion=data.get("emotion"))
-            continue
+                llm_text = data.get("text", "")
+                push_event("llm", text=llm_text, emotion=data.get("emotion"))
+
+                # Проверка маркеров "нет информации" и в llm
+                markers = [
+                    "нет информации",
+                    "не найдено",
+                    "не могу найти",
+                    "в базе знаний нет",
+                    "отсутствует информация",
+                    "не содержится",
+                    "не упоминается",
+                    "нет данных",
+                    "не удалось найти",
+                ]
+                if (last_user_question
+                        and not rag_fallback_active
+                        and any(m in llm_text.lower() for m in markers)):
+                    print(f"🔄 [RAG] Феофан не нашёл (llm) → fallback")
+                    q = last_user_question
+                    asyncio.create_task(handle_rag_fallback(q))
+                continue
 
         if t == "tts":
             state = data.get("state")
