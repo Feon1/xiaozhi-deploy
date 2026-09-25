@@ -32,6 +32,9 @@ send_queue = queue.Queue()
 # Состояние
 ws_ready = False
 session_id = None
+ws_ready = False
+session_id = None
+last_short_text = None   # ← добавить
 
 
 # ============================================================
@@ -112,7 +115,19 @@ async def ws_recv_loop(ws):
                 continue
 
             if t == "alert":
-                push_event("error", text=data.get("message", "alert"))
+                msg = data.get("message", "alert")
+    
+                if "wake words" in msg.lower() or "detect" in msg.lower():
+                    if last_short_text:
+                        print(f"⚠️ detect отклонил '{last_short_text}' → повторяю через TTS")
+                        push_event("status", text="Обхожу ограничение через TTS...")
+                        text_to_resend = last_short_text
+                        last_short_text = None
+                        send_long_text(text_to_resend)
+                    else:
+                        push_event("error", text=msg)
+                else:
+                    push_event("error", text=msg)
                 continue
 
             if t == "stt":
@@ -210,14 +225,25 @@ def start_ws_thread():
 # ОТПРАВКА СООБЩЕНИЙ
 # ============================================================
 def send_short_text(text: str):
+    """Короткий текст — через detect."""
+    global last_short_text
+    last_short_text = text      # запоминаем на случай отклонения
     send_queue.put({
         "kind": "text",
-        "data": {"type": "listen", "state": "detect", "text": text, "source": "text"}
+        "data": {
+            "type": "listen",
+            "state": "detect",
+            "text": text,
+            "source": "text"
+        }
     })
     print(f"📤 [detect] {text}")
 
 
 def send_long_text(text: str):
+    global last_short_text
+    last_short_text = None       # ← чтобы не было повторов
+    
     def worker():
         try:
             print(f"🎤 [TTS] Генерирую аудио для: {text[:60]}...")
