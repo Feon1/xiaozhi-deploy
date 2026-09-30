@@ -195,8 +195,10 @@ async def ws_recv_loop(ws):
             continue
 
         if t == "llm":
-                llm_text = data.get("text", "")
-                push_event("llm", text=llm_text, emotion=data.get("emotion"))
+            llm_text = data.get("text", "")
+            push_event("llm", text=llm_text, emotion=data.get("emotion"))
+            if llm_text.strip():
+                save_message("ai", llm_text)
 
                 # Проверка маркеров "нет информации" и в llm
                 markers = [
@@ -427,8 +429,8 @@ def events():
         while True:
             try:
                 item = sse_queue.get(timeout=20)
-                if item.get("kind") == "tts" and item.get("state") == "sentence_start":
-                    save_message("ai", item.get("text", ""))
+                #if item.get("kind") == "tts" and item.get("state") == "sentence_start":
+                #    save_message("ai", item.get("text", ""))
                 yield f"data: {json.dumps(item, ensure_ascii=False)}\n\n"
             except queue.Empty:
                 yield ": keepalive\n\n"
