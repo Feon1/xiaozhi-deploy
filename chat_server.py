@@ -18,7 +18,7 @@ from tts_helper import text_to_pcm_float32
 # ============================================================
 # НАСТРОЙКИ
 # ============================================================
-PROXY_URL = "ws://localhost:5002/"
+PROXY_URL = os.getenv("PROXY_URL", "ws://127.0.0.1:5002/")
 SHORT_LIMIT_BYTES = 30
 DB_FILE = os.path.join(os.path.dirname(__file__), "chat_history.db")
 
@@ -275,12 +275,13 @@ async def ws_worker():
     retry = 0
     while True:
         try:
-            print(f"🔌 Подключение к прокси {PROXY_URL}...")
+            print(f"🔌 Подключение к прокси {PROXY_URL}...", flush=True)
             push_event("status", text="Подключение к прокси...")
-            async with websockets.connect(PROXY_URL) as ws:
+            async with websockets.connect(PROXY_URL, open_timeout=5) as ws:
                 ws_ready = True
                 retry = 0
-                print("✅ Подключено к прокси")
+               
+                print("✅ Подключено к прокси", flush=True)
 
                 hello_msg = {
                     "type": "hello",
@@ -306,7 +307,7 @@ async def ws_worker():
                 for t in pending:
                     t.cancel()
         except Exception as e:
-            print(f"❌ Ошибка WebSocket: {e}")
+            print(f"❌ Ошибка WebSocket: {e}", flush=True)
             push_event("error", text=f"Ошибка подключения: {e}")
         finally:
             ws_ready = False
@@ -455,16 +456,16 @@ def text_chat():
     global last_user_question
 
     if request.method == "POST":
-        text = (request.form.get("text") or "").strip()
-        if text and ws_ready:
-            save_message("user", text)
-            last_user_question = text
-
+    text = (request.form.get("text") or "").strip()
+    if text:
+        save_message("user", text)
+        last_user_question = text
+        if ws_ready:
             if len(text.encode("utf-8")) <= SHORT_LIMIT_BYTES:
                 send_short_text(text)
             else:
                 send_long_text(text)
-        return redirect(url_for("text_chat"))
+    return redirect(url_for("text_chat")))
 
     history = get_history(limit=50)
     return render_template("text_chat.html", history=history)
