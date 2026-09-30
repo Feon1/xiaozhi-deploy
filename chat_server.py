@@ -465,7 +465,7 @@ def text_chat():
                 send_short_text(text)
             else:
                 send_long_text(text)
-    return redirect(url_for("text_chat")))
+    return redirect(url_for("text_chat"))
 
     history = get_history(limit=50)
     return render_template("text_chat.html", history=history)
