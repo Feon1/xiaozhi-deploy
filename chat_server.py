@@ -447,6 +447,10 @@ def clear():
     clear_history()
     return jsonify({"ok": True})
 
+@app.route("/text")
+@auth.login_required
+def text_chat():
+    return render_template("text_chat.html")
 
 # ============================================================
 # ЗАПУСК
