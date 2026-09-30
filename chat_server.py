@@ -456,16 +456,16 @@ def text_chat():
     global last_user_question
 
     if request.method == "POST":
-    text = (request.form.get("text") or "").strip()
-    if text:
-        save_message("user", text)
-        last_user_question = text
-        if ws_ready:
-            if len(text.encode("utf-8")) <= SHORT_LIMIT_BYTES:
-                send_short_text(text)
-            else:
-                send_long_text(text)
-    return redirect(url_for("text_chat"))
+        text = (request.form.get("text") or "").strip()
+        if text:
+            save_message("user", text)
+            last_user_question = text
+            if ws_ready:
+                if len(text.encode("utf-8")) <= SHORT_LIMIT_BYTES:
+                    send_short_text(text)
+                else:
+                    send_long_text(text)
+        return redirect(url_for("text_chat"))
 
     history = get_history(limit=50)
     return render_template("text_chat.html", history=history)
