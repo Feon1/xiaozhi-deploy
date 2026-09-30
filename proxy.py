@@ -240,17 +240,19 @@ class WebSocketProxy:
         finally:
             print("🔌 Клиент отключён")
 
+    
     async def handle_server_messages(self, server_ws, client_ws):
         try:
             async for message in server_ws:
                 if isinstance(message, str):
+                    print(f"⬅️ От Xiaozhi: {message[:300]}", flush=True)
                     await client_ws.send(message)
                 else:
-                    continue
+                    print(f"⬅️ От Xiaozhi (bin): {len(message)} bytes", flush=True)
         except Exception as e:
-            print(f"❌ Ошибка серверных сообщений: {type(e).__name__}: {e}")
+            print(f"❌ Server messages: {type(e).__name__}: {e}", flush=True)
             try:
-                print(f"   close_code={server_ws.close_code}, close_reason={server_ws.close_reason}")
+                print(f"   close_code={server_ws.close_code}, close_reason={server_ws.close_reason}", flush=True)
             except Exception:
                 pass
 
