@@ -19,7 +19,7 @@ from tts_helper import text_to_pcm_float32
 # НАСТРОЙКИ
 # ============================================================
 PROXY_URL = os.getenv("PROXY_URL", "ws://127.0.0.1:5002/")
-SHORT_LIMIT_BYTES = 30
+SHORT_LIMIT_BYTES = 0
 DB_FILE = os.path.join(os.path.dirname(__file__), "chat_history.db")
 
 
