@@ -197,8 +197,8 @@ async def ws_recv_loop(ws):
         if t == "llm":
             llm_text = data.get("text", "")
             push_event("llm", text=llm_text, emotion=data.get("emotion"))
-            if llm_text.strip():
-                save_message("ai", llm_text)
+            #if llm_text.strip():
+             #   save_message("ai", llm_text)
             continue
 
                 # Проверка маркеров "нет информации" и в llm
@@ -223,6 +223,7 @@ async def ws_recv_loop(ws):
 
        
         
+        
         if t == "tts":
             state = data.get("state")
             text = data.get("text", "")
@@ -231,6 +232,8 @@ async def ws_recv_loop(ws):
                 push_event("tts", state="sentence_start", text=text)
             elif state == "sentence_end" and text:
                 push_event("tts", state="sentence_end", text=text)
+                if text.strip() and not text.startswith("%"):
+                    save_message("ai", text)
             elif state == "start":
                 push_event("tts_start")
             elif state == "stop":
