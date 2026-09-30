@@ -199,6 +199,7 @@ async def ws_recv_loop(ws):
             push_event("llm", text=llm_text, emotion=data.get("emotion"))
             if llm_text.strip():
                 save_message("ai", llm_text)
+            continue
 
                 # Проверка маркеров "нет информации" и в llm
                ## markers = [
