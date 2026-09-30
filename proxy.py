@@ -190,7 +190,9 @@ class WebSocketProxy:
             print(f"\n📡 Клиент подключился: {websocket.remote_address}")
             print(f"🌐 Подключение к {WS_URL}")
 
-            register_device(self.device_id, self.client_id, self.token)
+            await asyncio.to_thread(
+                register_device, self.device_id, self.client_id, self.token
+            )
 
             print(f"📋 Заголовки: {self.headers}")
 
