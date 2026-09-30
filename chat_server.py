@@ -10,7 +10,7 @@ import numpy as np
 import httpx
 
 import websockets
-from flask import Flask, render_template, request, jsonify, Response
+from flask import Flask, render_template, request, jsonify, Response, redirect, url_for
 from flask_httpauth import HTTPBasicAuth
 
 from tts_helper import text_to_pcm_float32
@@ -447,10 +447,25 @@ def clear():
     clear_history()
     return jsonify({"ok": True})
 
-@app.route("/text")
+@app.route("/text", methods=["GET", "POST"])
 @auth.login_required
 def text_chat():
-    return render_template("text_chat.html")
+    global last_user_question
+
+    if request.method == "POST":
+        text = (request.form.get("text") or "").strip()
+        if text and ws_ready:
+            save_message("user", text)
+            last_user_question = text
+
+            if len(text.encode("utf-8")) <= SHORT_LIMIT_BYTES:
+                send_short_text(text)
+            else:
+                send_long_text(text)
+        return redirect(url_for("text_chat"))
+
+    history = get_history(limit=50)
+    return render_template("text_chat.html", history=history)
 
 # ============================================================
 # ЗАПУСК
