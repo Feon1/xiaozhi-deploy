@@ -2,11 +2,15 @@
 <html>
 <head>
 <meta charset="UTF-8">
+<meta http-equiv="refresh" content="8">
 <title>Xiaozhi — Текст</title>
 </head>
 <body>
 <h2>Xiaozhi — текстовый режим</h2>
-<p><a href="/">[ Графический режим ]</a></p>
+<p>
+  <a href="/">[ Графический режим ]</a> |
+  Статус: {% if ws_ready %}✅ онлайн{% else %}❌ нет связи{% endif %}
+</p>
 <hr>
 
 <div>
@@ -17,9 +21,9 @@
 
 <hr>
 <form method="post" action="/text">
-  <input type="text" name="text" size="60" autofocus>
+  <input type="text" name="text" size="50" autofocus>
   <input type="submit" value="Отправить">
 </form>
-<p><small>Обновите страницу (R в w3m), чтобы увидеть ответ.</small></p>
+<p><small>Страница обновляется каждые 8 сек. Нажмите R в w3m, чтобы обновить вручную.</small></p>
 </body>
 </html>
