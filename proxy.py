@@ -255,40 +255,40 @@ class WebSocketProxy:
                 pass
 
     async def handle_client_messages(self, client_ws, server_ws):
-    try:
-        async for message in client_ws:
-            if isinstance(message, str):
-                try:
-                    msg_data = json.loads(message)
-                    if msg_data.get('type') == 'reset':
-                        self.audio_processor.reset_buffer()
-                    elif msg_data.get('type') == 'getLastData':
-                        for chunk in self.audio_processor.process_remaining():
-                            try:
-                                opus_data = self.audio_processor.encode_chunk(chunk)
-                                await server_ws.send(opus_data)
-                            except Exception as e:
-                                print(f"Opus err (last): {e}", flush=True)
-                        await client_ws.send(json.dumps({'type': 'lastData'}))
-                    else:
+        try:
+            async for message in client_ws:
+                if isinstance(message, str):
+                    try:
+                        msg_data = json.loads(message)
+                        if msg_data.get('type') == 'reset':
+                            self.audio_processor.reset_buffer()
+                        elif msg_data.get('type') == 'getLastData':
+                            for chunk in self.audio_processor.process_remaining():
+                                try:
+                                    opus_data = self.audio_processor.encode_chunk(chunk)
+                                    await server_ws.send(opus_data)
+                                except Exception as e:
+                                    print(f"Opus err (last): {e}", flush=True)
+                            await client_ws.send(json.dumps({'type': 'lastData'}))
+                        else:
+                            await server_ws.send(message)
+                    except json.JSONDecodeError:
                         await server_ws.send(message)
-                except json.JSONDecodeError:
-                    await server_ws.send(message)
-            else:
-                try:
-                    audio_data = np.frombuffer(message, dtype=np.float32)
-                    if len(audio_data) > 0:
-                        chunks = self.audio_processor.process_audio(audio_data.tobytes())
-                        for chunk in chunks:
-                            try:
-                                opus_data = self.audio_processor.encode_chunk(chunk)
-                                await server_ws.send(opus_data)
-                            except Exception as e:
-                                print(f"Opus err: {e}", flush=True)
-                except Exception as e:
-                    print(f"Клиентское аудио: {e}", flush=True)
-    except Exception as e:
-        print(f"Ошибка клиентских сообщений: {e}", flush=True)
+                else:
+                    try:
+                        audio_data = np.frombuffer(message, dtype=np.float32)
+                        if len(audio_data) > 0:
+                            chunks = self.audio_processor.process_audio(audio_data.tobytes())
+                            for chunk in chunks:
+                                try:
+                                    opus_data = self.audio_processor.encode_chunk(chunk)
+                                    await server_ws.send(opus_data)
+                                except Exception as e:
+                                    print(f"Opus err: {e}", flush=True)
+                    except Exception as e:
+                        print(f"Клиентское аудио: {e}", flush=True)
+        except Exception as e:
+            print(f"Ошибка клиентских сообщений: {e}", flush=True)
 
     async def main(self):
         print("=" * 60)
