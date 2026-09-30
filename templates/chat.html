@@ -221,8 +221,9 @@
 </head>
 <body>
 
+<a href="/text" style="margin-left: 15px;">Текстовый режим</a>    
 <header>
-    <h1>🤖 Xiaozhi Chat</h1>
+    <h1>🤖 Feofan Chat</h1>
     <div class="header-actions">
         <span id="status">Подключение...</span>
         <button class="btn-theme" id="btnTheme" onclick="toggleTheme()" title="Переключить тему">🌙</button>
@@ -398,5 +399,12 @@
 
     loadHistory();
 </script>
+
+<script>
+  // Если браузер не поддерживает аудио — перенаправляем в текстовый режим
+  if (!window.AudioContext && !window.webkitAudioContext) {
+    window.location.href = '/text';
+  }
+</script>    
 </body>
 </html>
