@@ -35,8 +35,10 @@ PASSWORD = os.getenv("CHAT_PASS", "xiaozhi123")
 app = Flask(__name__)
 auth = HTTPBasicAuth()
 
+
 # Очереди
-sse_queue = queue.Queue()
+sse_clients = []                    # по одной очереди на каждого SSE-клиента
+sse_clients_lock = threading.Lock()
 send_queue = queue.Queue()
 
 # Состояние
@@ -102,7 +104,19 @@ def clear_history():
 # SSE-СОБЫТИЯ
 # ============================================================
 def push_event(kind, **payload):
-    sse_queue.put({"kind": kind, **payload})
+    event = {"kind": kind, **payload}
+    with sse_clients_lock:
+        dead = []
+        for q in sse_clients:
+            try:
+                q.put_nowait(event)
+            except Exception:
+                dead.append(q)
+        for q in dead:
+            try:
+                sse_clients.remove(q)
+            except ValueError:
+                pass
 
 
 # ============================================================
@@ -414,15 +428,22 @@ def send():
 @auth.login_required
 def events():
     def stream():
-        yield f"data: {json.dumps({'kind': 'status', 'text': 'Подключено' if ws_ready else 'Прокси не подключён'})}\n\n"
-        while True:
-            try:
-                item = sse_queue.get(timeout=20)
-                #if item.get("kind") == "tts" and item.get("state") == "sentence_start":
-                #    save_message("ai", item.get("text", ""))
-                yield f"data: {json.dumps(item, ensure_ascii=False)}\n\n"
-            except queue.Empty:
-                yield ": keepalive\n\n"
+        q = queue.Queue(maxsize=200)
+        with sse_clients_lock:
+            sse_clients.append(q)
+        try:
+            # стартовый статус — только этому клиенту
+            yield f"data: {json.dumps({'kind': 'status', 'text': 'Подключено' if ws_ready else 'Прокси не подключён'})}\n\n"
+            while True:
+                try:
+                    item = q.get(timeout=20)
+                    yield f"data: {json.dumps(item, ensure_ascii=False)}\n\n"
+                except queue.Empty:
+                    yield ": keepalive\n\n"
+        finally:
+            with sse_clients_lock:
+                if q in sse_clients:
+                    sse_clients.remove(q)
     return Response(stream(), mimetype="text/event-stream")
 
 
