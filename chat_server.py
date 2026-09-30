@@ -197,8 +197,8 @@ async def ws_recv_loop(ws):
         if t == "llm":
             llm_text = data.get("text", "")
             push_event("llm", text=llm_text, emotion=data.get("emotion"))
-            if llm_text.strip():
-                save_message("ai", llm_text)
+            #if llm_text.strip():
+            #    save_message("ai", llm_text)
             continue
 
                 # Проверка маркеров "нет информации" и в llm
@@ -221,32 +221,17 @@ async def ws_recv_loop(ws):
                #     asyncio.create_task(handle_rag_fallback(q))
                # continue
 
+       
         if t == "tts":
             state = data.get("state")
             text = data.get("text", "")
 
-            if state in ("sentence_start", "sentence_end") and text:
-                push_event("tts", state=state, text=text)
-
-                # Проверка на "нет информации" от Феофана
-                markers = [
-                    "нет информации",
-                    "не найдено",
-                    "не могу найти",
-                    "в базе знаний нет",
-                    "отсутствует информация",
-                    "не содержится",
-                    "не упоминается",
-                    "нет данных",
-                    "не удалось найти",
-                ]
-                #if (state == "sentence_end"
-                #        and last_user_question
-                 #       and any(m in text.lower() for m in markers)):
-                  #  print(f"🔄 [RAG] Феофан не нашёл → fallback")
-                 #   q = last_user_question
-                  #  asyncio.create_task(handle_rag_fallback(q))
-
+            if state == "sentence_start" and text:
+                push_event("tts", state="sentence_start", text=text)
+                save_message("ai", text)
+            if state == "sentence_end" and text:
+                push_event("tts", state="sentence_end", text=text)
+                save_message("ai", text)
             elif state == "start":
                 push_event("tts_start")
             elif state == "stop":
