@@ -117,9 +117,20 @@ class AudioProcessor:
     def __init__(self, buffer_size=960):
         self.buffer_size = buffer_size
         self.buffer = np.array([], dtype=np.float32)
+        self.encoder = opuslib.Encoder(16000, 1, 'voip')  # ← создаём ОДИН раз
 
     def reset_buffer(self):
         self.buffer = np.array([], dtype=np.float32)
+        # Пересоздаём энкодер — сессия новая
+        try:
+            self.encoder = opuslib.Encoder(16000, 1, 'voip')
+        except Exception:
+            pass
+
+    def encode_chunk(self, float32_chunk):
+        """float32 chunk (960 сэмплов) → Opus bytes."""
+        pcm_int16 = (float32_chunk * 32767).astype(np.int16)
+        return self.encoder.encode(pcm_int16.tobytes(), 960)
 
     def process_audio(self, input_data):
         input_array = np.frombuffer(input_data, dtype=np.float32)
@@ -128,15 +139,19 @@ class AudioProcessor:
         while len(self.buffer) >= self.buffer_size:
             chunk = self.buffer[:self.buffer_size]
             self.buffer = self.buffer[self.buffer_size:]
-            pcm_data = (chunk * 32767).astype(np.int16)
-            chunks.append(pcm_data.tobytes())
+            chunks.append(chunk.copy())
         return chunks
 
     def process_remaining(self):
         if len(self.buffer) > 0:
-            pcm_data = (self.buffer * 32767).astype(np.int16)
+            chunk = self.buffer
             self.buffer = np.array([], dtype=np.float32)
-            return [pcm_data.tobytes()]
+            # Дополняем нулями до 960
+            if len(chunk) < self.buffer_size:
+                padded = np.zeros(self.buffer_size, dtype=np.float32)
+                padded[:len(chunk)] = chunk
+                chunk = padded
+            return [chunk]
         return []
 
 
@@ -240,41 +255,40 @@ class WebSocketProxy:
                 pass
 
     async def handle_client_messages(self, client_ws, server_ws):
-        """
-        Сообщения от клиента к Xiaozhi.
-        Поддерживает текстовые сообщения и аудио (PCM Float32 → Opus).
-        """
-        try:
-            async for message in client_ws:
-                if isinstance(message, str):
-                    try:
-                        msg_data = json.loads(message)
-                        if msg_data.get('type') == 'reset':
-                            self.audio_processor.reset_buffer()
-                        elif msg_data.get('type') == 'getLastData':
-                            remaining_chunks = self.audio_processor.process_remaining()
-                            for chunk in remaining_chunks:
-                                opus_data = pcm_to_opus(chunk)
-                                if opus_data:
-                                    await server_ws.send(opus_data)
-                            await client_ws.send(json.dumps({'type': 'lastData'}))
-                        else:
-                            await server_ws.send(message)
-                    except json.JSONDecodeError:
+    try:
+        async for message in client_ws:
+            if isinstance(message, str):
+                try:
+                    msg_data = json.loads(message)
+                    if msg_data.get('type') == 'reset':
+                        self.audio_processor.reset_buffer()
+                    elif msg_data.get('type') == 'getLastData':
+                        for chunk in self.audio_processor.process_remaining():
+                            try:
+                                opus_data = self.audio_processor.encode_chunk(chunk)
+                                await server_ws.send(opus_data)
+                            except Exception as e:
+                                print(f"Opus err (last): {e}", flush=True)
+                        await client_ws.send(json.dumps({'type': 'lastData'}))
+                    else:
                         await server_ws.send(message)
-                else:
-                    try:
-                        audio_data = np.frombuffer(message, dtype=np.float32)
-                        if len(audio_data) > 0:
-                            chunks = self.audio_processor.process_audio(audio_data.tobytes())
-                            for chunk in chunks:
-                                opus_data = pcm_to_opus(chunk)
-                                if opus_data:
-                                    await server_ws.send(opus_data)
-                    except Exception as e:
-                        print(f"Клиентское аудио: {e}")
-        except Exception as e:
-            print(f"Ошибка клиентских сообщений: {e}")
+                except json.JSONDecodeError:
+                    await server_ws.send(message)
+            else:
+                try:
+                    audio_data = np.frombuffer(message, dtype=np.float32)
+                    if len(audio_data) > 0:
+                        chunks = self.audio_processor.process_audio(audio_data.tobytes())
+                        for chunk in chunks:
+                            try:
+                                opus_data = self.audio_processor.encode_chunk(chunk)
+                                await server_ws.send(opus_data)
+                            except Exception as e:
+                                print(f"Opus err: {e}", flush=True)
+                except Exception as e:
+                    print(f"Клиентское аудио: {e}", flush=True)
+    except Exception as e:
+        print(f"Ошибка клиентских сообщений: {e}", flush=True)
 
     async def main(self):
         print("=" * 60)
