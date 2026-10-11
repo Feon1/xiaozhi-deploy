@@ -122,7 +122,15 @@
     <textarea id="input" placeholder="Введите сообщение... (Enter — отправить, Shift+Enter — новая строка)"></textarea>
     <button id="btnSend" onclick="sendMessage()">➤</button>
 </div>
-
+<div id="model-selector" style="margin-bottom:10px;">
+    <label>
+        <input type="checkbox" id="use-mnn"> Использовать MNN Chat
+    </label>
+    <select id="model-dropdown" disabled>
+        <option>Загрузка...</option>
+    </select>
+    <button id="refresh-models">Обновить</button>
+</div>
 <script>
     const chat = document.getElementById('chat');
     const input = document.getElementById('input');
@@ -233,6 +241,9 @@
         addMessage('История очищена', 'system');
     }
 
+
+
+    
     async function loadHistory() {
         try {
             const resp = await fetch('/history');
@@ -251,6 +262,9 @@
     });
 
     loadHistory();
+
+        
+    
 </script>
 </body>
 </html>
