@@ -4,8 +4,8 @@ import httpx
 import asyncio
 
 # Настройки из переменных окружения (или значения по умолчанию)
-MNN_API_URL = os.getenv("MNN_API_URL", "https://tailscale-termux.tailda5e94.ts.net/v1")
-MNN_API_KEY = os.getenv("MNN_API_KEY", "Vd9amgCZJcM8Z84S")  # смените на свой!
+MNN_API_URL = os.getenv("MNN_API_URL")
+MNN_API_KEY = os.getenv("MNN_API_KEY")  # смените на свой!
 
 async def fetch_models() -> list[str]:
     """Возвращает список доступных моделей из MNN Chat."""
