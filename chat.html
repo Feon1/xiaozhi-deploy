@@ -6,6 +6,7 @@
     <title>Xiaozhi Chat</title>
     <style>
         * { box-sizing: border-box; }
+
         body {
             font-family: system-ui, sans-serif;
             max-width: 800px;
@@ -15,6 +16,7 @@
             flex-direction: column;
             background: #f0f2f5;
         }
+
         header {
             background: #3498db;
             color: white;
@@ -23,8 +25,11 @@
             justify-content: space-between;
             align-items: center;
         }
+
         header h1 { font-size: 18px; margin: 0; }
+
         #status { font-size: 13px; opacity: 0.9; }
+
         #chat {
             flex: 1;
             overflow-y: auto;
@@ -33,6 +38,7 @@
             flex-direction: column;
             gap: 8px;
         }
+
         .msg {
             padding: 10px 14px;
             border-radius: 14px;
@@ -41,18 +47,21 @@
             font-size: 15px;
             line-height: 1.4;
         }
+
         .msg.user {
             background: #3498db;
             color: white;
             align-self: flex-end;
             border-bottom-right-radius: 4px;
         }
+
         .msg.ai {
             background: white;
             border: 1px solid #e2e8f0;
             align-self: flex-start;
             border-bottom-left-radius: 4px;
         }
+
         .msg.system {
             background: #e2e8f0;
             color: #475569;
@@ -60,6 +69,7 @@
             font-size: 12px;
             font-style: italic;
         }
+
         .msg.error {
             background: #fee;
             color: #c0392b;
@@ -67,6 +77,49 @@
             font-size: 13px;
             border: 1px solid #fcc;
         }
+
+        /* Панель выбора модели */
+        #model-selector {
+            padding: 8px 12px;
+            background: #f8fafc;
+            border-top: 1px solid #e2e8f0;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            font-size: 13px;
+            flex-wrap: wrap;
+        }
+
+        #model-selector label {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            cursor: pointer;
+        }
+
+        #model-dropdown {
+            flex: 1;
+            min-width: 150px;
+            padding: 5px 8px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 13px;
+            background: white;
+        }
+
+        #model-dropdown:disabled {
+            background: #eef1f4;
+            color: #94a3b8;
+        }
+
+        #refresh-models {
+            padding: 5px 12px;
+            font-size: 13px;
+            background: #64748b;
+        }
+
+        #refresh-models:hover { background: #475569; }
+
         .footer {
             padding: 12px;
             background: white;
@@ -75,6 +128,7 @@
             gap: 10px;
             align-items: flex-end;
         }
+
         textarea {
             flex: 1;
             padding: 10px 12px;
@@ -86,6 +140,7 @@
             font-family: inherit;
             font-size: 15px;
         }
+
         button {
             padding: 10px 20px;
             background: #2ecc71;
@@ -96,13 +151,16 @@
             cursor: pointer;
             font-size: 16px;
         }
+
         button:hover { background: #27ae60; }
         button:disabled { background: #bdc3c7; }
+
         .btn-clear {
             background: #e74c3c;
             padding: 6px 12px;
             font-size: 13px;
         }
+
         .btn-clear:hover { background: #c0392b; }
     </style>
 </head>
@@ -118,20 +176,25 @@
 
 <div id="chat"></div>
 
-<div class="footer">
-    <textarea id="input" placeholder="Введите сообщение... (Enter — отправить, Shift+Enter — новая строка)"></textarea>
-    <button id="btnSend" onclick="sendMessage()">➤</button>
-</div>
-<div id="model-selector" style="margin-bottom:10px;">
+<!-- Панель выбора модели (над полем ввода) -->
+<div id="model-selector">
     <label>
-        <input type="checkbox" id="use-mnn"> Использовать MNN Chat
+        <input type="checkbox" id="use-mnn">
+        <span>Использовать MNN Chat</span>
     </label>
     <select id="model-dropdown" disabled>
         <option>Загрузка...</option>
     </select>
     <button id="refresh-models">Обновить</button>
 </div>
+
+<div class="footer">
+    <textarea id="input" placeholder="Введите сообщение... (Enter — отправить, Shift+Enter — новая строка)"></textarea>
+    <button id="btnSend" onclick="sendMessage()">➤</button>
+</div>
+
 <script>
+    // ===== Ссылки на элементы DOM =====
     const chat = document.getElementById('chat');
     const input = document.getElementById('input');
     const btnSend = document.getElementById('btnSend');
@@ -140,6 +203,7 @@
     let currentAiMsg = null;
     let streaming = false;
 
+    // ===== Утилиты =====
     function addMessage(text, cls) {
         const div = document.createElement('div');
         div.className = 'msg ' + cls;
@@ -153,6 +217,7 @@
         statusEl.textContent = text;
     }
 
+    // ===== Отправка сообщения =====
     async function sendMessage() {
         const text = input.value.trim();
         if (!text || streaming) return;
@@ -165,17 +230,29 @@
         try {
             const resp = await fetch('/send', {
                 method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({text})
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text })
             });
             const data = await resp.json();
+
             if (!data.ok) {
                 addMessage('Ошибка: ' + (data.error || 'неизвестная'), 'error');
                 streaming = false;
                 btnSend.disabled = false;
                 return;
             }
+
+            // Если работал режим MNN — показываем ответ сразу
+            if (data.mode === 'mnn' && data.answer) {
+                addMessage(data.answer, 'ai');
+                streaming = false;
+                btnSend.disabled = false;
+                return;
+            }
+
+            // Иначе — ждём ответ по SSE (режим Xiaozhi)
             addMessage(`[режим: ${data.mode}, ${data.bytes} байт]`, 'system');
+
         } catch (e) {
             addMessage('Ошибка сети: ' + e.message, 'error');
             streaming = false;
@@ -183,8 +260,9 @@
         }
     }
 
-    // SSE-канал
+    // ===== SSE-канал =====
     const es = new EventSource('/events');
+
     es.onmessage = (ev) => {
         const data = JSON.parse(ev.data);
         const kind = data.kind;
@@ -193,25 +271,31 @@
             updateStatus(data.text);
             return;
         }
+
         if (kind === 'error') {
             addMessage('⚠️ ' + data.text, 'error');
             return;
         }
+
         if (kind === 'audio') {
             addMessage(`[аудио ${data.size} байт]`, 'system');
             return;
         }
+
         if (kind === 'stt') {
             addMessage(`[stt] ${data.text}`, 'system');
             return;
         }
+
         if (kind === 'llm') {
             return; // llm — это эмоция, показывать не обязательно
         }
+
         if (kind === 'tts_start') {
             currentAiMsg = null;
             return;
         }
+
         if (kind === 'tts') {
             if (data.state === 'sentence_start') {
                 if (!currentAiMsg) {
@@ -222,6 +306,7 @@
             }
             return;
         }
+
         if (kind === 'tts_stop') {
             currentAiMsg = null;
             streaming = false;
@@ -234,16 +319,15 @@
         updateStatus('SSE-канал отключён, переподключение...');
     };
 
+    // ===== Очистка истории =====
     async function clearHistory() {
         if (!confirm('Очистить историю?')) return;
-        await fetch('/clear', {method: 'POST'});
+        await fetch('/clear', { method: 'POST' });
         chat.innerHTML = '';
         addMessage('История очищена', 'system');
     }
 
-
-
-    
+    // ===== Загрузка истории при старте =====
     async function loadHistory() {
         try {
             const resp = await fetch('/history');
@@ -251,9 +335,72 @@
             for (const item of items) {
                 addMessage(item.text, item.role === 'user' ? 'user' : 'ai');
             }
-        } catch (e) {}
+        } catch (e) {
+            console.error('Ошибка загрузки истории:', e);
+        }
     }
 
+    // ===== Работа с моделями MNN =====
+
+    // Загружаем список доступных моделей с сервера
+    async function loadModels() {
+        const select = document.getElementById('model-dropdown');
+        try {
+            const resp = await fetch('/models');
+            const data = await resp.json();
+
+            select.innerHTML = '';
+
+            if (!data.models || data.models.length === 0) {
+                const opt = document.createElement('option');
+                opt.textContent = 'Модели не найдены';
+                select.appendChild(opt);
+                return;
+            }
+
+            data.models.forEach(m => {
+                const opt = document.createElement('option');
+                opt.value = m;
+                opt.textContent = m;
+                if (m === data.selected) opt.selected = true;
+                select.appendChild(opt);
+            });
+
+        } catch (e) {
+            console.error('Ошибка загрузки моделей:', e);
+            select.innerHTML = '<option>Ошибка загрузки</option>';
+        }
+    }
+
+    // Включение/выключение режима MNN
+    document.getElementById('use-mnn').addEventListener('change', async (e) => {
+        const useMnn = e.target.checked;
+        const model = document.getElementById('model-dropdown').value;
+        document.getElementById('model-dropdown').disabled = !useMnn;
+
+        await fetch('/set_model', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ use_mnn: useMnn, model: model })
+        });
+    });
+
+    // Смена модели в выпадающем списке
+    document.getElementById('model-dropdown').addEventListener('change', async (e) => {
+        await fetch('/set_model', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                use_mnn: document.getElementById('use-mnn').checked,
+                model: e.target.value
+            })
+        });
+    });
+
+    // Кнопка "Обновить"
+    document.getElementById('refresh-models').addEventListener('click', loadModels);
+
+    // ===== Горячие клавиши =====
     input.addEventListener('keydown', (e) => {
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
@@ -261,62 +408,9 @@
         }
     });
 
+    // ===== Инициализация при старте =====
     loadHistory();
-    async function loadModels() {
-    try {
-        const resp = await fetch('/models');
-        const data = await resp.json();
-        const select = document.getElementById('model-dropdown');
-        select.innerHTML = '';
-        if (!data.models || data.models.length === 0) {
-            const opt = document.createElement('option');
-            opt.textContent = 'Модели не найдены';
-            select.appendChild(opt);
-            return;
-        }
-        data.models.forEach(m => {
-            const opt = document.createElement('option');
-            opt.value = m;
-            opt.textContent = m;
-            if (m === data.selected) opt.selected = true;
-            select.appendChild(opt);
-        });
-    } catch (e) {
-        console.error('Ошибка загрузки моделей:', e);
-    }
-}
-
-// При включении/выключении чекбокса — сообщаем серверу
-document.getElementById('use-mnn').addEventListener('change', async (e) => {
-    const useMnn = e.target.checked;
-    const model = document.getElementById('model-dropdown').value;
-    document.getElementById('model-dropdown').disabled = !useMnn;
-    await fetch('/set_model', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({use_mnn: useMnn, model: model})
-    });
-});
-
-// При смене модели в выпадающем списке
-document.getElementById('model-dropdown').addEventListener('change', async (e) => {
-    await fetch('/set_model', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({
-            use_mnn: document.getElementById('use-mnn').checked,
-            model: e.target.value
-        })
-    });
-});
-
-// Кнопка "Обновить"
-document.getElementById('refresh-models').addEventListener('click', loadModels);
-
-// Загружаем список моделей при старте страницы
-loadModels();
-        
-    
+    loadModels();
 </script>
 </body>
 </html>
