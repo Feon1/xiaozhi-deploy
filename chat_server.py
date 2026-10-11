@@ -8,7 +8,7 @@ import os
 import sqlite3
 import numpy as np
 import httpx
-
+from mnn_client import fetch_models, ask_mnn
 import websockets
 from flask import Flask, render_template, request, jsonify, Response, redirect, url_for
 from flask_httpauth import HTTPBasicAuth
@@ -31,6 +31,10 @@ YANDEX_API_KEY = os.getenv("YANDEX_API_KEY", "")
 # Пароль
 USERNAME = os.getenv("CHAT_USER", "admin")
 PASSWORD = os.getenv("CHAT_PASS", "xiaozhi123")
+
+# Выбранная модель MNN (если используется)
+SELECTED_MNN_MODEL = None
+USE_MNN = False  # Переключатель: True — использовать MNN, False — Xiaozhi
 
 app = Flask(__name__)
 auth = HTTPBasicAuth()
@@ -398,31 +402,61 @@ def index():
     return render_template("chat.html")
 
 
+
 @app.route("/send", methods=["POST"])
 @auth.login_required
 def send():
-    global last_user_question
+    global last_user_question, USE_MNN, SELECTED_MNN_MODEL
     data = request.get_json()
     text = (data.get("text") or "").strip()
     if not text:
         return jsonify({"ok": False, "error": "Пустой текст"})
-    if not ws_ready:
-        return jsonify({"ok": False, "error": "Прокси не подключён"})
 
     save_message("user", text)
     last_user_question = text
 
-    length_bytes = len(text.encode("utf-8"))
-
-    if length_bytes <= SHORT_LIMIT_BYTES:
-        send_short_text(text)
-        mode = "detect"
+    if USE_MNN and SELECTED_MNN_MODEL:
+        # Режим MNN: вызываем локальную модель
+        import asyncio
+        answer = asyncio.run(ask_mnn(text, SELECTED_MNN_MODEL))
+        save_message("ai", answer)
+        push_event("llm", text=answer)
+        # Можно также озвучить через TTS (если нужно)
+        # send_long_text(answer)
+        return jsonify({"ok": True, "mode": "mnn", "answer": answer})
     else:
-        send_long_text(text)
-        mode = "tts"
+        # Старый режим Xiaozhi
+        if not ws_ready:
+            return jsonify({"ok": False, "error": "Прокси не подключён"})
+        length_bytes = len(text.encode("utf-8"))
+        if length_bytes <= SHORT_LIMIT_BYTES:
+            send_short_text(text)
+            mode = "detect"
+        else:
+            send_long_text(text)
+            mode = "tts"
+        return jsonify({"ok": True, "mode": mode, "bytes": length_bytes})
 
-    return jsonify({"ok": True, "mode": mode, "bytes": length_bytes})
+@app.route("/models")
+@auth.login_required
+def models_route():
+    """Возвращает список моделей MNN Chat."""
+    import asyncio
+    models = asyncio.run(fetch_models())
+    return jsonify({"models": models, "selected": SELECTED_MNN_MODEL})
 
+@app.route("/set_model", methods=["POST"])
+@auth.login_required
+def set_model():
+    """Устанавливает выбранную модель и режим работы."""
+    global SELECTED_MNN_MODEL, USE_MNN
+    data = request.get_json()
+    model = data.get("model")
+    use_mnn = data.get("use_mnn", False)
+
+    SELECTED_MNN_MODEL = model
+    USE_MNN = use_mnn
+    return jsonify({"ok": True, "model": SELECTED_MNN_MODEL, "use_mnn": USE_MNN})
 
 @app.route("/events")
 @auth.login_required
