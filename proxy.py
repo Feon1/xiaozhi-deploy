@@ -13,7 +13,6 @@ from system_info import setup_opus
 
 import logging
 
-# Скрыть трейсбеки от HEAD-запросов Render
 logging.getLogger("websockets.server").setLevel(logging.CRITICAL)
 logging.getLogger("websockets.asyncio.server").setLevel(logging.CRITICAL)
 
@@ -37,6 +36,10 @@ LOCAL_PROXY_URL = os.getenv("LOCAL_PROXY_URL", "ws://localhost:5002")
 OTA_URL = os.getenv("OTA_URL", "https://api.tenclass.net/xiaozhi/ota/")
 
 DEVICE_MAC = 'e0:2e:0b:ae:79:ea'
+CLIENT_ID = "9cc3e5e4-adcf-4eff-8d23-95d4eaa21020"
+
+# Интервал keep-alive ping (сек). Должен быть меньше таймаута Xiaozhi (обычно 60с).
+KEEP_ALIVE_INTERVAL = int(os.getenv("KEEP_ALIVE_INTERVAL", "25"))
 
 try:
     parsed_url = urlparse(LOCAL_PROXY_URL)
@@ -52,9 +55,6 @@ except Exception:
 # ============================================================
 def get_mac_address():
     return DEVICE_MAC
-
-
-CLIENT_ID = "9cc3e5e4-adcf-4eff-8d23-95d4eaa21020"
 
 
 def get_client_id():
@@ -88,47 +88,35 @@ def register_device(device_mac, client_id, token):
     }
 
     try:
-        print(f"📡 OTA-запрос на {OTA_URL}...")
+        print(f"📡 OTA-запрос на {OTA_URL}...", flush=True)
         response = requests.post(OTA_URL, headers=headers, json=payload, timeout=10)
-        print(f"📡 HTTP {response.status_code}")
+        print(f"📡 HTTP {response.status_code}", flush=True)
         response.raise_for_status()
         data = response.json()
-        print("📡 OTA ответ:", json.dumps(data, indent=2, ensure_ascii=False)[:500])
+        print("📡 OTA ответ получен", flush=True)
         return data
     except Exception as e:
-        print(f"❌ OTA ошибка: {e}")
+        print(f"❌ OTA ошибка: {e}", flush=True)
         return None
 
 
 # ============================================================
-# АУДИО (только для ИСХОДЯЩЕГО — от клиента к Xiaozhi)
+# АУДИО
 # ============================================================
-def pcm_to_opus(pcm_data):
-    try:
-        encoder = opuslib.Encoder(16000, 1, 'voip')
-        pcm_array = np.frombuffer(pcm_data, dtype=np.int16)
-        return encoder.encode(pcm_array.tobytes(), 960)
-    except Exception as e:
-        print(f"Opus encode error: {e}")
-        return None
-
-
 class AudioProcessor:
     def __init__(self, buffer_size=960):
         self.buffer_size = buffer_size
         self.buffer = np.array([], dtype=np.float32)
-        self.encoder = opuslib.Encoder(16000, 1, 'voip')  # ← создаём ОДИН раз
+        self.encoder = opuslib.Encoder(16000, 1, 'voip')
 
     def reset_buffer(self):
         self.buffer = np.array([], dtype=np.float32)
-        # Пересоздаём энкодер — сессия новая
         try:
             self.encoder = opuslib.Encoder(16000, 1, 'voip')
         except Exception:
             pass
 
     def encode_chunk(self, float32_chunk):
-        """float32 chunk (960 сэмплов) → Opus bytes."""
         pcm_int16 = (float32_chunk * 32767).astype(np.int16)
         return self.encoder.encode(pcm_int16.tobytes(), 960)
 
@@ -146,7 +134,6 @@ class AudioProcessor:
         if len(self.buffer) > 0:
             chunk = self.buffer
             self.buffer = np.array([], dtype=np.float32)
-            # Дополняем нулями до 960
             if len(chunk) < self.buffer_size:
                 padded = np.zeros(self.buffer_size, dtype=np.float32)
                 padded[:len(chunk)] = chunk
@@ -156,21 +143,15 @@ class AudioProcessor:
 
 
 # ============================================================
-# ОБРАБОТЧИК HTTP-ЗАПРОСОВ (для health-checks Render)
+# ОБРАБОТЧИК HTTP (для health-check Render)
 # ============================================================
 async def process_request(connection, request):
-    """
-    Если пришёл не-WebSocket запрос (HEAD, GET без Upgrade) —
-    возвращаем короткий HTTP-ответ вместо падения.
-    """
-    # Если это WebSocket upgrade — пропускаем дальше (None = продолжить)
     if request.headers.get("Upgrade", "").lower() == "websocket":
         return None
-    
-    # Иначе — возвращаем простой ответ
+
     from websockets.http11 import Response
     from websockets.datastructures import Headers
-    
+
     body = b"Xiaozhi WebSocket Proxy is running"
     headers = Headers([
         ("Content-Type", "text/plain"),
@@ -178,6 +159,7 @@ async def process_request(connection, request):
         ("Connection", "close"),
     ])
     return Response(200, "OK", headers, body)
+
 
 # ============================================================
 # WEBSOCKET-ПРОКСИ
@@ -197,74 +179,128 @@ class WebSocketProxy:
         if self.enable_token:
             self.headers["Authorization"] = f"Bearer {self.token}"
 
-        # Только для исходящего аудио (от браузера в Xiaozhi)
         self.audio_processor = AudioProcessor(buffer_size=960)
 
-    async def proxy_handler(self, websocket):
+    # ---------- APPLICATION-LEVEL KEEP-ALIVE ----------
+    async def keep_alive(self, server_ws, session_id):
+        """
+        Отправляет JSON {"type":"ping"} каждые KEEP_ALIVE_INTERVAL секунд.
+        Это считается активностью сессии и не даёт Xiaozhi закрыть соединение.
+        """
         try:
-            print(f"\n📡 Клиент подключился: {websocket.remote_address}")
-            print(f"🌐 Подключение к {WS_URL}")
+            while True:
+                await asyncio.sleep(KEEP_ALIVE_INTERVAL)
+                try:
+                    await server_ws.send(json.dumps({"type": "ping"}))
+                    print(f"💓 [{session_id}] keep-alive ping", flush=True)
+                except Exception as e:
+                    print(f"💓 [{session_id}] keep-alive failed: {e}", flush=True)
+                    return
+        except asyncio.CancelledError:
+            return
+
+    # ---------- ОСНОВНОЙ ОБРАБОТЧИК ----------
+    async def proxy_handler(self, websocket):
+        session_id = "?"
+        try:
+            print(f"\n📡 Клиент подключился: {websocket.remote_address}", flush=True)
+            print(f"🌐 Подключение к {WS_URL}", flush=True)
 
             await asyncio.to_thread(
                 register_device, self.device_id, self.client_id, self.token
             )
 
-            print(f"📋 Заголовки: {self.headers}")
-
             async with websockets.connect(
                 WS_URL,
                 additional_headers=self.headers,
-                ping_interval=20,      # отправлять ping каждые 20 сек
-                ping_timeout=10,       # ждать pong 10 сек
+                ping_interval=20,
+                ping_timeout=10,
                 close_timeout=5,
+                max_size=10 * 1024 * 1024,   # 10 MB — на случай длинных ответов
             ) as server_ws:
-                print("✅ Подключено к серверу Xiaozhi")
+                print("✅ Подключено к серверу Xiaozhi", flush=True)
+
+                # Отдельная задача keep-alive для сервера
+                keep_alive_task = asyncio.create_task(
+                    self.keep_alive(server_ws, session_id)
+                )
 
                 client_to_server = asyncio.create_task(
-                    self.handle_client_messages(websocket, server_ws)
+                    self.handle_client_messages(websocket, server_ws, session_id)
                 )
                 server_to_client = asyncio.create_task(
-                    self.handle_server_messages(server_ws, websocket)
+                    self.handle_server_messages(server_ws, websocket, session_id)
                 )
 
                 done, pending = await asyncio.wait(
-                    [client_to_server, server_to_client],
+                    [client_to_server, server_to_client, keep_alive_task],
                     return_when=asyncio.FIRST_COMPLETED
                 )
 
+                # Показать, какая задача завершилась первой
+                for task in done:
+                    if task.exception():
+                        print(f"⚠️ Задача завершилась с ошибкой: {task.exception()}", flush=True)
+
+                # Отменяем и ждём отмены остальных задач
                 for task in pending:
                     task.cancel()
+                for task in pending:
+                    try:
+                        await task
+                    except (asyncio.CancelledError, Exception):
+                        pass
+
+                # Логируем, кто и как закрыл соединение
+                try:
+                    print(
+                        f"🔚 Закрытие сервера: code={server_ws.close_code}, "
+                        f"reason={server_ws.close_reason}",
+                        flush=True
+                    )
+                except Exception:
+                    pass
 
         except Exception as e:
-            print(f"❌ Ошибка прокси: {e}")
+            print(f"❌ Ошибка прокси: {type(e).__name__}: {e}", flush=True)
         finally:
-            print("🔌 Клиент отключён")
+            print(f"🔌 Клиент отключён (session={session_id})", flush=True)
 
-    
-    async def handle_server_messages(self, server_ws, client_ws):
+    # ---------- СООБЩЕНИЯ ОТ XIAOZHI ----------
+    async def handle_server_messages(self, server_ws, client_ws, session_id):
         try:
             async for message in server_ws:
                 if isinstance(message, str):
+                    # Логируем session_id, если сервер его прислал
+                    try:
+                        data = json.loads(message)
+                        if data.get("type") == "hello" and data.get("session_id"):
+                            session_id = data["session_id"]
+                            print(f"✅ Session ID: {session_id}", flush=True)
+                    except Exception:
+                        pass
                     print(f"⬅️ От Xiaozhi: {message[:300]}", flush=True)
                     await client_ws.send(message)
                 else:
                     print(f"⬅️ От Xiaozhi (bin): {len(message)} bytes", flush=True)
+                    await client_ws.send(message)
+        except websockets.exceptions.ConnectionClosed as e:
+            print(f"❌ Сервер закрыл соединение: code={e.code}, reason={e.reason}", flush=True)
         except Exception as e:
             print(f"❌ Server messages: {type(e).__name__}: {e}", flush=True)
-            try:
-                print(f"   close_code={server_ws.close_code}, close_reason={server_ws.close_reason}", flush=True)
-            except Exception:
-                pass
 
-    async def handle_client_messages(self, client_ws, server_ws):
+    # ---------- СООБЩЕНИЯ ОТ БРАУЗЕРА ----------
+    async def handle_client_messages(self, client_ws, server_ws, session_id):
         try:
             async for message in client_ws:
                 if isinstance(message, str):
                     try:
                         msg_data = json.loads(message)
-                        if msg_data.get('type') == 'reset':
+                        msg_type = msg_data.get('type')
+
+                        if msg_type == 'reset':
                             self.audio_processor.reset_buffer()
-                        elif msg_data.get('type') == 'getLastData':
+                        elif msg_type == 'getLastData':
                             for chunk in self.audio_processor.process_remaining():
                                 try:
                                     opus_data = self.audio_processor.encode_chunk(chunk)
@@ -289,22 +325,27 @@ class WebSocketProxy:
                                     print(f"Opus err: {e}", flush=True)
                     except Exception as e:
                         print(f"Клиентское аудио: {e}", flush=True)
+        except websockets.exceptions.ConnectionClosed as e:
+            print(f"❌ Клиент закрыл соединение: code={e.code}, reason={e.reason}", flush=True)
         except Exception as e:
-            print(f"Ошибка клиентских сообщений: {e}", flush=True)
+            print(f"Ошибка клиентских сообщений: {type(e).__name__}: {e}", flush=True)
 
+    # ---------- ЗАПУСК ----------
     async def main(self):
         print("=" * 60)
         print(f"🚀 Прокси запускается на {PROXY_HOST}:{PROXY_PORT}")
         print(f"📱 Device ID: {self.device_id}")
-        print(f"🔑 Token: {self.token}")
         print(f"🌐 WS URL: {WS_URL}")
+        print(f"💓 Keep-alive каждые {KEEP_ALIVE_INTERVAL} сек")
         print("=" * 60)
 
         async with websockets.serve(
             self.proxy_handler,
             PROXY_HOST,
             PROXY_PORT,
-            process_request=process_request,   # ← добавили
+            process_request=process_request,
+            ping_interval=None,   # отключаем авто-пинг на стороне прокси-сервера
+            ping_timeout=None,
         ):
             await asyncio.Future()
 
